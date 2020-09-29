@@ -6,43 +6,51 @@ using System.Text;
 
 namespace RFID_Sick_Emulator
 {
-    public class Emulator
+    public class Emulator : IDisposable
     {
-        private List<byte[]> packets = new List<byte[]>(); // to emulate
-        public Emulator(List<byte[]> packets)
+        private readonly string ep;
+        private TcpClient client;
+        private TcpListener listener;
+
+        public Emulator(string ep)
         {
-            this.packets = packets;
+            this.ep = ep;
         }
 
-        public void Send(string ipaddress)
+        public void Start()
         {
-            var localep = IPEndPoint.Parse(ipaddress);
-            var listener = new TcpListener(localep);
-            Console.WriteLine("Listening to " + localep);
+            var localep = IPEndPoint.Parse(ep);
+            listener = new TcpListener(localep);
             listener.Start();
-            var client = listener.AcceptTcpClient();
+            Connect();
+        }
+
+        private void Connect()
+        {
+            client = listener.AcceptTcpClient();
+            Console.WriteLine($"{DateTime.Now} - {client.Client.LocalEndPoint} - Listening to: {ep}");
             Console.WriteLine($"{DateTime.Now} - {client.Client.LocalEndPoint} - Client connected from IP address: {client.Client.RemoteEndPoint}");
-            while (true)
+        }
+
+        public void Send(byte[] packet)
+        {
+            try
             {
-                foreach (var packet in packets)
-                {
-                    try
-                    {
-                        Console.WriteLine($"{DateTime.Now} - {client.Client.LocalEndPoint} - Sending packet: " + BitConverter.ToString(packet).Replace("-", ""));
-                        client.Client.Send(packet);
-                    }
-                    catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionReset)
-                    {
-                        Console.Error.WriteLine($"{DateTime.Now} - {client.Client.LocalEndPoint} - They disconnected: {client.Client.RemoteEndPoint}");
-                        Console.WriteLine($"{DateTime.Now} - {client.Client.LocalEndPoint} - Listening to: {localep}");
-                        client = listener.AcceptTcpClient();
-                        Console.WriteLine($"{DateTime.Now} - {client.Client.LocalEndPoint} - Client connected from IP address: {client.Client.RemoteEndPoint}");
-                    }
-                    System.Threading.Thread.Sleep(5000);
-                }
-                //client.Close(); // for testing graceful shutdown on client
-                //break;
+                Console.WriteLine($"{DateTime.Now} - {client.Client.LocalEndPoint} - Sending packet: " + BitConverter.ToString(packet).Replace("-", ""));
+                client.Client.Send(packet);
             }
+            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionReset)
+            {
+                Console.Error.WriteLine($"{DateTime.Now} - {client.Client.LocalEndPoint} - They disconnected: {client.Client.RemoteEndPoint}");
+                Connect();
+            }
+            //client.Close(); // for testing graceful shutdown on client
+            //break;
+        }
+
+        public void Dispose()
+        {
+            client?.Close();
         }
     }
 }
